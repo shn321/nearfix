@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useEffect, useMemo } from 'react';
+import { use, useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, Map as MapIcon, List, Navigation, Phone } from 'lucide-react';
 import { useLocation, calculateDistance } from '@/lib/location';
@@ -54,8 +54,18 @@ export default function ServiceCategoryPage({
 
     const catConfig = CATEGORIES.find((c) => c.key === category);
 
-    // Load services exclusively from OpenStreetMap for 100% accuracy
+    // Track what we last fetched to avoid redundant requests
+    const lastFetchKeyRef = useRef<string>('');
+
+    // Load services ONCE after location is resolved (or when category/distance changes)
     useEffect(() => {
+        // Build a key for the current fetch parameters
+        const locKey = location ? `${location.lat.toFixed(6)},${location.lng.toFixed(6)}` : 'none';
+        const fetchKey = `${category}|${locKey}|${maxDistance}`;
+
+        // Skip if we already fetched for these exact parameters
+        if (fetchKey === lastFetchKeyRef.current) return;
+
         async function loadServices() {
             setServicesLoading(true);
             try {
@@ -73,10 +83,12 @@ export default function ServiceCategoryPage({
                 }
 
                 setServices(finalData);
+                lastFetchKeyRef.current = fetchKey;
             } catch (error) {
                 console.error("Error loading services:", error);
                 const fallbackData = await getServicesByCategory(category);
                 setServices(fallbackData);
+                lastFetchKeyRef.current = fetchKey;
             } finally {
                 setServicesLoading(false);
             }

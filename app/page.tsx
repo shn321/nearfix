@@ -342,6 +342,14 @@ export default function HomePage() {
                         >
                             Verify on Google Maps →
                         </a>
+                        <button
+                            onClick={startDetection}
+                            className="nf-btn nf-btn-outline-refresh"
+                            id="refresh-location-btn"
+                        >
+                            <RefreshCw size={14} />
+                            Refresh Location
+                        </button>
                     </div>
                 </div>
             )}

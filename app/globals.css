@@ -484,6 +484,20 @@ body {
   text-decoration: underline;
 }
 
+.nf-btn-outline-refresh {
+  background: white;
+  color: #16A34A;
+  border: 1.5px solid #BBF7D0;
+  padding: 10px 20px;
+  font-size: 0.82rem;
+  margin-top: 4px;
+}
+
+.nf-btn-outline-refresh:hover {
+  background: #F0FDF4;
+  border-color: #86EFAC;
+}
+
 /* ══════════════════════════════════════════════════════════
    CATEGORIES
    ══════════════════════════════════════════════════════════ */

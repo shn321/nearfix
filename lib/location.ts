@@ -9,70 +9,111 @@ export interface UserLocation {
 /** Accuracy threshold in meters — location is "ready" only when below this */
 const ACCURACY_THRESHOLD = 500;
 
-/** Maximum retry cycles if accuracy stays poor */
+/** Maximum retry attempts if accuracy stays poor */
 const MAX_RETRIES = 3;
 
-/** How long to wait for an accurate fix per attempt before retrying (ms) */
-const ATTEMPT_TIMEOUT = 10000;
+/** localStorage key for caching detected coordinates */
+const LOCATION_STORAGE_KEY = 'nearfix_location';
+
+/** Cache TTL in milliseconds (10 minutes) */
+const CACHE_TTL = 10 * 60 * 1000;
 
 type LocationPhase = 'idle' | 'detecting' | 'done' | 'error';
 
 export type LocationErrorCode = 'permission_denied' | 'position_unavailable' | 'timeout' | 'unsupported' | null;
 
+interface CachedLocation {
+    lat: number;
+    lng: number;
+    accuracy: number;
+    timestamp: number;
+}
+
 /**
- * High-accuracy location hook — manual trigger by default.
+ * Try to load a cached location from localStorage.
+ * Returns null if no cache exists or if the cache is expired.
+ */
+function loadCachedLocation(): UserLocation | null {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem(LOCATION_STORAGE_KEY);
+        if (!raw) return null;
+        const cached: CachedLocation = JSON.parse(raw);
+        if (Date.now() - cached.timestamp > CACHE_TTL) {
+            localStorage.removeItem(LOCATION_STORAGE_KEY);
+            return null;
+        }
+        return { lat: cached.lat, lng: cached.lng, accuracy: cached.accuracy };
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Save location to localStorage with a timestamp.
+ */
+function saveCachedLocation(loc: UserLocation): void {
+    if (typeof window === 'undefined') return;
+    try {
+        const cached: CachedLocation = {
+            lat: loc.lat,
+            lng: loc.lng,
+            accuracy: loc.accuracy,
+            timestamp: Date.now(),
+        };
+        localStorage.setItem(LOCATION_STORAGE_KEY, JSON.stringify(cached));
+    } catch {
+        // Ignore storage errors
+    }
+}
+
+/**
+ * High-accuracy location hook — detect once, store, reuse.
  *
- * Does NOT start detecting on mount unless autoStart=true.
- * Call `startDetection()` to begin — this triggers the browser
- * permission popup via navigator.geolocation.getCurrentPosition().
+ * Uses getCurrentPosition instead of watchPosition so coordinates
+ * do NOT change continuously. Location is detected once and stored
+ * in both React state and localStorage.
+ *
+ * Call `startDetection()` to begin or refresh — this is the ONLY way
+ * to trigger a new GPS reading.
  *
  * Flow after startDetection():
- *  1. Call getCurrentPosition() to trigger the permission popup.
- *  2. Start watchPosition with enableHighAccuracy: true, maximumAge: 0.
- *  3. Accept the first reading whose accuracy < 50 m — mark as "done".
- *  4. If no reading meets the threshold within ATTEMPT_TIMEOUT, restart
- *     the watch (up to MAX_RETRIES total cycles).
- *  5. If all retries exhausted, accept the best reading obtained so far.
- *  6. After the initial lock, keep the watch running for live updates.
+ *  1. Call getCurrentPosition() with enableHighAccuracy: true.
+ *  2. If accuracy meets threshold, accept immediately.
+ *  3. If accuracy is poor, retry up to MAX_RETRIES times.
+ *  4. After all retries, accept the best reading obtained.
+ *  5. Store the final coordinates — no further GPS calls.
  */
 export function useLocation(autoStart = false) {
-    const [phase, setPhase] = useState<LocationPhase>(autoStart ? 'detecting' : 'idle');
+    const [phase, setPhase] = useState<LocationPhase>('idle');
     const [location, setLocation] = useState<UserLocation | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [errorCode, setErrorCode] = useState<LocationErrorCode>(null);
     const [loadingMessage, setLoadingMessage] = useState('Detecting your location...');
 
-    const watchIdRef = useRef<number | null>(null);
     const retryCountRef = useRef(0);
     const bestReadingRef = useRef<UserLocation | null>(null);
-    const accurateFixObtainedRef = useRef(false);
-    const attemptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const detectionActiveRef = useRef(false);
 
-    const clearAttemptTimer = useCallback(() => {
-        if (attemptTimerRef.current !== null) {
-            clearTimeout(attemptTimerRef.current);
-            attemptTimerRef.current = null;
-        }
-    }, []);
-
-    const clearWatch = useCallback(() => {
-        if (watchIdRef.current !== null) {
-            navigator.geolocation.clearWatch(watchIdRef.current);
-            watchIdRef.current = null;
-        }
-    }, []);
-
+    /**
+     * Accept a GPS reading as the final location.
+     * Stores in state + localStorage, marks detection as done.
+     */
     const acceptReading = useCallback((reading: UserLocation) => {
-        accurateFixObtainedRef.current = true;
-        clearAttemptTimer();
+        detectionActiveRef.current = false;
         setLocation(reading);
         setPhase('done');
         setError(null);
-    }, [clearAttemptTimer]);
+        setErrorCode(null);
+        saveCachedLocation(reading);
+    }, []);
 
-    const startWatchCycle = useCallback(() => {
-        clearWatch();
-        clearAttemptTimer();
+    /**
+     * Perform a single getCurrentPosition attempt.
+     * Retries up to MAX_RETRIES times for better accuracy.
+     */
+    const attemptGetPosition = useCallback(() => {
+        if (!detectionActiveRef.current) return;
 
         const attempt = retryCountRef.current + 1;
         setLoadingMessage(
@@ -81,80 +122,72 @@ export function useLocation(autoStart = false) {
                 : `Refining accuracy (attempt ${attempt}/${MAX_RETRIES})...`
         );
 
-        attemptTimerRef.current = setTimeout(() => {
-            if (accurateFixObtainedRef.current) return;
-
-            retryCountRef.current += 1;
-
-            if (retryCountRef.current < MAX_RETRIES) {
-                startWatchCycle();
-            } else {
-                if (bestReadingRef.current) {
-                    acceptReading(bestReadingRef.current);
-                }
-            }
-        }, ATTEMPT_TIMEOUT);
-
-        watchIdRef.current = navigator.geolocation.watchPosition(
+        navigator.geolocation.getCurrentPosition(
             (position) => {
+                if (!detectionActiveRef.current) return;
+
                 const reading: UserLocation = {
                     lat: position.coords.latitude,
                     lng: position.coords.longitude,
                     accuracy: position.coords.accuracy,
                 };
 
-                if (
-                    !bestReadingRef.current ||
-                    reading.accuracy < bestReadingRef.current.accuracy
-                ) {
+                // Track the best reading across attempts
+                if (!bestReadingRef.current || reading.accuracy < bestReadingRef.current.accuracy) {
                     bestReadingRef.current = reading;
                 }
 
-                if (accurateFixObtainedRef.current) {
-                    setLocation(reading);
-                    return;
-                }
-
-                if (reading.accuracy <= ACCURACY_THRESHOLD) {
-                    acceptReading(reading);
+                // If accuracy is good enough OR we've exhausted retries, accept
+                if (reading.accuracy <= ACCURACY_THRESHOLD || retryCountRef.current >= MAX_RETRIES - 1) {
+                    acceptReading(bestReadingRef.current!);
+                } else {
+                    // Try again for better accuracy
+                    retryCountRef.current += 1;
+                    attemptGetPosition();
                 }
             },
             (err) => {
-                if (!accurateFixObtainedRef.current && !bestReadingRef.current) {
-                    let message = 'Unable to detect location.';
-                    let code: LocationErrorCode = null;
-                    switch (err.code) {
-                        case err.PERMISSION_DENIED:
-                            message = 'Please allow location permission';
-                            code = 'permission_denied';
-                            break;
-                        case err.POSITION_UNAVAILABLE:
-                            message = 'Location is turned off. Please enable location from your device settings.';
-                            code = 'position_unavailable';
-                            break;
-                        case err.TIMEOUT:
-                            message = 'Unable to detect location, try again';
-                            code = 'timeout';
-                            break;
-                    }
-                    setError(message);
-                    setErrorCode(code);
-                    setPhase('error');
-                    clearAttemptTimer();
+                if (!detectionActiveRef.current) return;
+
+                // If we have a best reading from a previous attempt, use it
+                if (bestReadingRef.current) {
+                    acceptReading(bestReadingRef.current);
+                    return;
                 }
+
+                let message = 'Unable to detect location.';
+                let code: LocationErrorCode = null;
+                switch (err.code) {
+                    case err.PERMISSION_DENIED:
+                        message = 'Please allow location permission';
+                        code = 'permission_denied';
+                        break;
+                    case err.POSITION_UNAVAILABLE:
+                        message = 'Location is turned off. Please enable location from your device settings.';
+                        code = 'position_unavailable';
+                        break;
+                    case err.TIMEOUT:
+                        message = 'Unable to detect location, try again';
+                        code = 'timeout';
+                        break;
+                }
+
+                detectionActiveRef.current = false;
+                setError(message);
+                setErrorCode(code);
+                setPhase('error');
             },
             {
                 enableHighAccuracy: true,
-                timeout: 15000,
-                maximumAge: 0,
+                timeout: 10000,
+                maximumAge: 60000,
             }
         );
-    }, [clearWatch, clearAttemptTimer, acceptReading]);
+    }, [acceptReading]);
 
     /**
-     * Call this to begin GPS detection.
-     * This triggers the browser permission popup via getCurrentPosition(),
-     * then starts watchPosition for high-accuracy tracking.
+     * Call this to begin GPS detection (or refresh).
+     * This is the ONLY way to trigger a new location reading.
      */
     const startDetection = useCallback(() => {
         if (!navigator.geolocation) {
@@ -167,20 +200,20 @@ export function useLocation(autoStart = false) {
         // Reset everything for a fresh detection
         retryCountRef.current = 0;
         bestReadingRef.current = null;
-        accurateFixObtainedRef.current = false;
+        detectionActiveRef.current = true;
 
         setPhase('detecting');
         setError(null);
         setErrorCode(null);
-        setLocation(null);
         setLoadingMessage('Please enable location to continue');
 
-        // getCurrentPosition triggers the browser permission popup immediately
+        // Single getCurrentPosition call — triggers browser permission popup
+        // then starts accuracy refinement attempts
         navigator.geolocation.getCurrentPosition(
             () => {
-                // Permission granted — now start the accurate watch cycle
+                // Permission granted — start accuracy refinement
                 setLoadingMessage('Detecting your location...');
-                startWatchCycle();
+                attemptGetPosition();
             },
             (err) => {
                 let message = 'Unable to detect location.';
@@ -199,26 +232,32 @@ export function useLocation(autoStart = false) {
                         code = 'timeout';
                         break;
                 }
+                detectionActiveRef.current = false;
                 setError(message);
                 setErrorCode(code);
                 setPhase('error');
             },
             {
                 enableHighAccuracy: true,
-                timeout: 15000,
-                maximumAge: 0,
+                timeout: 10000,
+                maximumAge: 60000,
             }
         );
-    }, [startWatchCycle]);
+    }, [attemptGetPosition]);
 
-    // Auto-start on mount for category pages
+    // On mount: load cached location or auto-start detection
     useEffect(() => {
-        if (autoStart) {
+        const cached = loadCachedLocation();
+        if (cached) {
+            // Use cached location — no GPS call needed
+            setLocation(cached);
+            setPhase('done');
+        } else if (autoStart) {
             startDetection();
         }
+
         return () => {
-            clearWatch();
-            clearAttemptTimer();
+            detectionActiveRef.current = false;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -284,8 +323,8 @@ export function getCurrentPosition(): Promise<UserLocation> {
                 },
                 {
                     enableHighAccuracy: true,
-                    timeout: 15000,
-                    maximumAge: 0,
+                    timeout: 10000,
+                    maximumAge: 60000,
                 }
             );
         }
