@@ -7,7 +7,6 @@ import { useLocation, calculateDistance } from '@/lib/location';
 import { getServicesByCategory } from '@/lib/serviceStore';
 import { CATEGORIES, type Service, type ServiceCategory } from '@/data/services';
 import { ServiceCard } from '@/components/ServiceCard';
-import { fetchOSMServices } from '@/lib/osm';
 
 const DISTANCE_OPTIONS = [2, 5, 10, 20, 50];
 
@@ -71,14 +70,24 @@ export default function ServiceCategoryPage({
             try {
                 let finalData: Service[] = [];
 
-                // If we have GPS location, fetch 100% real internet data from OSM
+                // If we have GPS location, fetch real data from OSM via server API
                 if (location) {
-                    const osmData = await fetchOSMServices(category as ServiceCategory, location.lat, location.lng, maxDistance);
-                    finalData = osmData;
+                    const apiUrl = `/api/services/nearby?category=${encodeURIComponent(category)}&lat=${location.lat}&lng=${location.lng}`;
+                    console.log(`[NearFix] Fetching nearby services: ${apiUrl}`);
+                    const res = await fetch(apiUrl);
+                    if (res.ok) {
+                        const osmData = await res.json();
+                        console.log(`[NearFix] OSM API response for "${category}":`, osmData);
+                        console.log(`[NearFix] ${osmData.length} services returned from OpenStreetMap`);
+                        finalData = osmData;
+                    } else {
+                        console.warn(`[NearFix] OSM API returned status ${res.status}`);
+                    }
                 }
 
                 // Fallback to local database if OSM fails or location is not provided
                 if (finalData.length === 0) {
+                    console.log('[NearFix] Falling back to local database');
                     finalData = await getServicesByCategory(category);
                 }
 
