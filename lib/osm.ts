@@ -2,25 +2,25 @@ import { Service, ServiceCategory } from '@/data/services';
 
 const OSM_TAGS: Record<ServiceCategory, string[]> = {
     puncture: [
-        'nwr["shop"="tyres"]',
-        'nwr["shop"="car_repair"]'
+        '["shop"="tyres"]',
+        '["shop"="car_repair"]'
     ],
     mechanic: [
-        'nwr["shop"="car_repair"]',
-        'nwr["shop"="motorcycle_repair"]'
+        '["shop"="car_repair"]',
+        '["shop"="motorcycle_repair"]'
     ],
     fuel: [
-        'nwr["amenity"="fuel"]'
+        '["amenity"="fuel"]'
     ],
     ev: [
-        'nwr["amenity"="charging_station"]'
+        '["amenity"="charging_station"]'
     ],
     hospital: [
-        'nwr["amenity"="hospital"]',
-        'nwr["amenity"="clinic"]'
+        '["amenity"="hospital"]',
+        '["amenity"="clinic"]'
     ],
     police: [
-        'nwr["amenity"="police"]'
+        '["amenity"="police"]'
     ]
 };
 
@@ -63,7 +63,12 @@ export async function fetchOSMServices(
         const tags = OSM_TAGS[category];
         if (!tags) return [];
 
-        const queryBody = tags.map(tag => `${tag}(around:${radiusMeters},${lat},${lng});`).join("");
+        // Expand each tag into node, way, and relation queries
+        const queryBody = tags.map(tag =>
+            `node${tag}(around:${radiusMeters},${lat},${lng});` +
+            `way${tag}(around:${radiusMeters},${lat},${lng});` +
+            `relation${tag}(around:${radiusMeters},${lat},${lng});`
+        ).join("");
         const query = `[out:json][timeout:25];(${queryBody});out center;`;
 
         const MAX_RETRIES = 4;
