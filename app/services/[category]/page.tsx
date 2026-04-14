@@ -2,7 +2,7 @@
 
 import { use, useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Map as MapIcon, List, Navigation, Phone } from 'lucide-react';
+import { ArrowLeft, Loader2, Map as MapIcon, List, Navigation, Phone, MapPin, LocateFixed } from 'lucide-react';
 import { useLocation, calculateDistance } from '@/lib/location';
 import { getServicesByCategory } from '@/lib/serviceStore';
 import { CATEGORIES, type Service, type ServiceCategory } from '@/data/services';
@@ -45,13 +45,22 @@ export default function ServiceCategoryPage({
     params: Promise<{ category: string }>;
 }) {
     const { category } = use(params);
-    const { location, loading: locationLoading, loadingMessage } = useLocation(true);
+    const { location, loading: locationLoading, loadingMessage, startDetection, phase } = useLocation();
     const [services, setServices] = useState<Service[]>([]);
     const [servicesLoading, setServicesLoading] = useState(true);
     const [maxDistance, setMaxDistance] = useState(20);
     const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
     const catConfig = CATEGORIES.find((c) => c.key === category);
+
+    // On mount, load the cached location from localStorage (set on home page).
+    // startDetection() checks cache first — if valid, no GPS call is made.
+    useEffect(() => {
+        if (phase === 'idle' && !location) {
+            startDetection();
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Track what we last fetched to avoid redundant requests
     const lastFetchKeyRef = useRef<string>('');
@@ -223,6 +232,26 @@ export default function ServiceCategoryPage({
                             </a>
                             </div>
                         </div>
+                )}
+
+                {/* Enable Location Prompt */}
+                {phase === 'idle' && !location && (
+                    <div className="flex flex-col items-center justify-center py-16 gap-4">
+                        <div className="w-16 h-16 rounded-full bg-[#FF5C00]/10 flex items-center justify-center">
+                            <LocateFixed size={32} className="text-[#FF5C00]" />
+                        </div>
+                        <p className="text-gray-600 text-sm font-medium text-center">
+                            Enable location to find nearby {catConfig.label.toLowerCase()}
+                        </p>
+                        <button
+                            onClick={startDetection}
+                            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-[#FF5C00] text-white font-semibold hover:bg-[#e85400] active:scale-[0.97] transition-all shadow-sm"
+                        >
+                            <MapPin size={18} />
+                            Enable Location
+                        </button>
+                        <p className="text-gray-400 text-xs">We use GPS to show services closest to you</p>
+                    </div>
                 )}
 
                 {/* Loading */}

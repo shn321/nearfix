@@ -52,6 +52,81 @@ const OVERPASS_SERVERS = [
     'https://overpass.openstreetmap.fr/api/interpreter'
 ];
 
+/** Delay helper */
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** Track which server to use next (round-robin across requests) */
+let serverIndex = 0;
+
+/**
+ * Fetch a single Overpass query with retry + server rotation.
+ * Returns raw elements array or empty array on failure.
+ */
+async function fetchOverpassQuery(query: string): Promise<any[]> {
+    const MAX_RETRIES = 3;
+    const FETCH_TIMEOUT_MS = 12000;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const server = OVERPASS_SERVERS[serverIndex % OVERPASS_SERVERS.length];
+        serverIndex++;
+
+        try {
+            console.log(`[OSM] Fetching from ${server} (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+            const response = await fetch(server, {
+                method: "POST",
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `data=${encodeURIComponent(query)}`,
+                signal: controller.signal,
+            });
+
+            clearTimeout(timeoutId);
+
+            if (response.status === 429) {
+                console.warn(`[OSM] Rate limited (429) on ${server}, waiting before retry...`);
+                await delay(2000);
+                continue;
+            }
+
+            if (response.status === 504) {
+                console.warn(`[OSM] Gateway timeout (504) on ${server}, trying next server...`);
+                await delay(1000);
+                continue;
+            }
+
+            if (!response.ok) {
+                throw new Error(`Overpass API responded with status: ${response.status}`);
+            }
+
+            const text = await response.text();
+
+            // Guard against HTML error pages
+            if (text.trimStart().startsWith('<')) {
+                throw new Error('Overpass returned HTML error instead of JSON');
+            }
+
+            const data = JSON.parse(text);
+            return data.elements || [];
+
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            console.warn(`[OSM] Attempt ${attempt + 1} failed: ${msg}`);
+
+            if (attempt < MAX_RETRIES) {
+                // Backoff: 1s, 2s, 3s
+                await delay(1000 * (attempt + 1));
+            }
+        }
+    }
+
+    return [];
+}
+
 export async function fetchOSMServices(
     category: ServiceCategory,
     lat: number,
@@ -59,103 +134,74 @@ export async function fetchOSMServices(
     radiusKm: number
 ): Promise<Service[]> {
     try {
-        const radiusMeters = radiusKm * 1000;
+        // Cap radius at 5km to prevent heavy queries
+        const radiusMeters = Math.min(radiusKm * 1000, 5000);
         const tags = OSM_TAGS[category];
         if (!tags) return [];
 
-        // Expand each tag into node, way, and relation queries
-        const queryBody = tags.map(tag =>
-            `node${tag}(around:${radiusMeters},${lat},${lng});` +
-            `way${tag}(around:${radiusMeters},${lat},${lng});` +
-            `relation${tag}(around:${radiusMeters},${lat},${lng});`
-        ).join("");
-        const query = `[out:json][timeout:25];(${queryBody});out center;`;
+        console.log(`[OSM] Category: ${category}, Radius: ${radiusMeters}m, Tags: ${tags.length}`);
 
-        const MAX_RETRIES = 4;
-        const FETCH_TIMEOUT_MS = 15000;
+        // Split into separate queries per tag to keep each query lightweight
+        const allElements: any[] = [];
+        const seenIds = new Set<number>();
 
-        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            const serverUrl = OVERPASS_SERVERS[attempt % OVERPASS_SERVERS.length];
+        for (let i = 0; i < tags.length; i++) {
+            const tag = tags[i];
 
-            try {
-                console.log(`[OSM] Fetching from ${serverUrl} (Attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
+            // Only query node and way (skip relation — rarely useful for POIs)
+            const query = `[out:json][timeout:15];(\n` +
+                `node${tag}(around:${radiusMeters},${lat},${lng});\n` +
+                `way${tag}(around:${radiusMeters},${lat},${lng});\n` +
+                `);out center;`;
 
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+            console.log(`[OSM] Query ${i + 1}/${tags.length}: ${tag}`);
 
-                // Use POST with URL-encoded data
-                const response = await fetch(serverUrl, {
-                    method: "POST",
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: `data=${encodeURIComponent(query)}`,
-                    signal: controller.signal,
-                });
+            const elements = await fetchOverpassQuery(query);
 
-                clearTimeout(timeoutId);
-
-                if (!response.ok) {
-                    throw new Error(`Overpass API responded with status: ${response.status}`);
+            // Deduplicate by element ID
+            for (const el of elements) {
+                if (!seenIds.has(el.id)) {
+                    seenIds.add(el.id);
+                    allElements.push(el);
                 }
+            }
 
-                const text = await response.text();
-
-                // Guard against HTML error pages
-                if (text.trimStart().startsWith('<')) {
-                    throw new Error('Overpass returned HTML error instead of JSON');
-                }
-
-                const data = JSON.parse(text);
-
-                if (!data.elements || !Array.isArray(data.elements)) return [];
-
-                return data.elements
-                    .filter((el: any) => (el.lat || el.center?.lat) && (el.lon || el.center?.lon))
-                    .map((el: any) => {
-                        const elementLat = el.lat || el.center?.lat;
-                        const elementLon = el.lon || el.center?.lon;
-
-                        let name = el.tags?.name || el.tags?.['name:en'];
-                        if (!name) {
-                            const type = category.charAt(0).toUpperCase() + category.slice(1);
-                            name = `Local ${type} Service`;
-                        }
-
-                        const address = formatOSMAddress(el.tags || {});
-                        const phone = el.tags?.phone || el.tags?.['contact:phone'] || '+91 Not Provided';
-
-                        return {
-                            id: el.id,
-                            name,
-                            category: category,
-                            address,
-                            phone,
-                            latitude: elementLat,
-                            longitude: elementLon,
-                            rating: Number(generateStableRating(el.id).toFixed(1)),
-                        };
-                    });
-            } catch (error) {
-                const msg = error instanceof Error ? error.message : String(error);
-                const isTimeout = msg.includes("abort") || msg.includes("timeout");
-                console.warn(`[OSM] Attempt ${attempt + 1} failed for ${serverUrl}: ${msg}${isTimeout ? " (timeout)" : ""}`);
-
-                if (attempt === MAX_RETRIES) {
-                    console.error("[OSM] All retry attempts failed.");
-                    return [];
-                }
-
-                // Exponential backoff: 1s, 2s, 4s, 8s
-                const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
-                await new Promise(resolve => setTimeout(resolve, delay));
+            // Add 1 second delay between tag queries to avoid rate limiting
+            if (i < tags.length - 1) {
+                await delay(1000);
             }
         }
 
-        return [];
+        console.log(`[OSM] Total unique elements: ${allElements.length}`);
+
+        return allElements
+            .filter((el: any) => (el.lat || el.center?.lat) && (el.lon || el.center?.lon))
+            .map((el: any) => {
+                const elementLat = el.lat || el.center?.lat;
+                const elementLon = el.lon || el.center?.lon;
+
+                let name = el.tags?.name || el.tags?.['name:en'];
+                if (!name) {
+                    const type = category.charAt(0).toUpperCase() + category.slice(1);
+                    name = `Local ${type} Service`;
+                }
+
+                const address = formatOSMAddress(el.tags || {});
+                const phone = el.tags?.phone || el.tags?.['contact:phone'] || '+91 Not Provided';
+
+                return {
+                    id: el.id,
+                    name,
+                    category: category,
+                    address,
+                    phone,
+                    latitude: elementLat,
+                    longitude: elementLon,
+                    rating: Number(generateStableRating(el.id).toFixed(1)),
+                };
+            });
     } catch (globalError) {
         console.error("[OSM] Global error in fetchOSMServices:", globalError);
         return [];
     }
 }
-

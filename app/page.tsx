@@ -208,7 +208,7 @@ export default function HomePage() {
 
     const handleRetry = () => {
         setShowErrorModal(false);
-        startDetection();
+        startDetection(true);
     };
 
     return (
@@ -252,7 +252,7 @@ export default function HomePage() {
                             : 'Enable location to find nearby services'}
                     </p>
                     <button
-                        onClick={startDetection}
+                        onClick={() => startDetection(true)}
                         className="nf-btn nf-btn-primary"
                         id="enable-location-btn"
                     >
@@ -295,7 +295,7 @@ export default function HomePage() {
                         Your location: {location?.lat.toFixed(4)}, {location?.lng.toFixed(4)}
                     </p>
                     <button
-                        onClick={startDetection}
+                        onClick={() => startDetection(true)}
                         className="nf-btn nf-btn-outline-warning"
                     >
                         <RefreshCw size={14} />
@@ -343,7 +343,7 @@ export default function HomePage() {
                             Verify on Google Maps →
                         </a>
                         <button
-                            onClick={startDetection}
+                            onClick={() => startDetection(true)}
                             className="nf-btn nf-btn-outline-refresh"
                             id="refresh-location-btn"
                         >

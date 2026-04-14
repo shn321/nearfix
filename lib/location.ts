@@ -84,7 +84,7 @@ function saveCachedLocation(loc: UserLocation): void {
  *  4. After all retries, accept the best reading obtained.
  *  5. Store the final coordinates — no further GPS calls.
  */
-export function useLocation(autoStart = false) {
+export function useLocation() {
     const [phase, setPhase] = useState<LocationPhase>('idle');
     const [location, setLocation] = useState<UserLocation | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -187,9 +187,23 @@ export function useLocation(autoStart = false) {
 
     /**
      * Call this to begin GPS detection (or refresh).
-     * This is the ONLY way to trigger a new location reading.
+     * @param skipCache — if true, ignore localStorage cache and force fresh GPS detection.
+     *                    Use true for user-initiated button clicks (shows loading animation).
+     *                    Use false/default for silent cache loading (e.g. category page mount).
      */
-    const startDetection = useCallback(() => {
+    const startDetection = useCallback((skipCache = false) => {
+        // Check cache first — use it if valid (no GPS call needed)
+        if (!skipCache) {
+            const cached = loadCachedLocation();
+            if (cached) {
+                setLocation(cached);
+                setPhase('done');
+                setError(null);
+                setErrorCode(null);
+                return;
+            }
+        }
+
         if (!navigator.geolocation) {
             setError('Geolocation is not supported by your browser.');
             setErrorCode('unsupported');
@@ -205,7 +219,7 @@ export function useLocation(autoStart = false) {
         setPhase('detecting');
         setError(null);
         setErrorCode(null);
-        setLoadingMessage('Please enable location to continue');
+        setLoadingMessage('Detecting your location...');
 
         // Single getCurrentPosition call — triggers browser permission popup
         // then starts accuracy refinement attempts
@@ -245,21 +259,11 @@ export function useLocation(autoStart = false) {
         );
     }, [attemptGetPosition]);
 
-    // On mount: load cached location or auto-start detection
+    // Cleanup on unmount
     useEffect(() => {
-        const cached = loadCachedLocation();
-        if (cached) {
-            // Use cached location — no GPS call needed
-            setLocation(cached);
-            setPhase('done');
-        } else if (autoStart) {
-            startDetection();
-        }
-
         return () => {
             detectionActiveRef.current = false;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const loading = phase === 'detecting';
