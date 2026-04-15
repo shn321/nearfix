@@ -1,69 +1,101 @@
 'use client';
 
 import Link from 'next/link';
-import { MapPin, Menu } from 'lucide-react';
-import { useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { MapPin, Menu, X, Home, LayoutDashboard, Layers, HelpCircle, ShieldCheck, Info } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 export function Navbar() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const pathname = usePathname();
+
+    // Close mobile menu on route change
+    useEffect(() => {
+        setIsMobileMenuOpen(false);
+    }, [pathname]);
+
+    // Lock body scroll when mobile menu is open
+    useEffect(() => {
+        if (isMobileMenuOpen) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+        return () => { document.body.style.overflow = ''; };
+    }, [isMobileMenuOpen]);
 
     const navLinks = [
-        { name: 'Home', href: '/' },
-        { name: 'Dashboard', href: '/dashboard' },
-        { name: 'Services', href: '/services' },
-        { name: 'Admin', href: '/admin' },
+        { name: 'Home', href: '/', icon: <Home size={16} /> },
+        { name: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard size={16} /> },
+        { name: 'Services', href: '/services', icon: <Layers size={16} /> },
+        { name: 'About', href: '/about', icon: <Info size={16} /> },
+        { name: 'Track Help', href: '/help', icon: <HelpCircle size={16} /> },
+        { name: 'Admin', href: '/admin', icon: <ShieldCheck size={16} /> },
     ];
 
+    const isActive = (href: string) => {
+        if (href === '/') return pathname === '/';
+        return pathname.startsWith(href);
+    };
+
     return (
-        <header className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-100">
-            <div className="flex justify-between items-center px-[20px] py-[15px] max-w-[1400px] mx-auto w-full">
+        <header className="nav-header">
+            <div className="nav-container">
                 {/* Logo */}
-                <Link href="/" className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-[#FF5C00] flex items-center justify-center shadow-md">
-                        <MapPin size={18} className="text-white" />
+                <Link href="/" className="nav-logo">
+                    <div className="nav-logo-icon">
+                        <MapPin size={18} />
                     </div>
-                    <span className="text-xl font-bold text-gray-900 tracking-tight">
-                        Near<span className="text-[#FF5C00]">Fix</span>
+                    <span className="nav-logo-text">
+                        Near<span className="nav-logo-accent">Fix</span>
                     </span>
                 </Link>
 
                 {/* Desktop Navigation */}
-                <nav className="hidden md:flex items-center gap-2">
+                <nav className="nav-desktop">
                     {navLinks.map((link) => (
                         <Link
                             key={link.name}
                             href={link.href}
-                            className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-all duration-200"
+                            className={`nav-link ${isActive(link.href) ? 'nav-link-active' : ''}`}
                         >
                             {link.name}
+                            {isActive(link.href) && <span className="nav-link-indicator" />}
                         </Link>
                     ))}
                 </nav>
 
                 {/* Mobile Menu Toggle */}
                 <button
-                    className="md:hidden p-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                    className="nav-mobile-toggle"
                     onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                    aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
                 >
-                    <Menu size={24} />
+                    {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
                 </button>
             </div>
 
-            {/* Mobile Navigation */}
+            {/* Mobile Navigation Overlay */}
             {isMobileMenuOpen && (
-                <div className="md:hidden bg-white border-t border-gray-100 shadow-lg absolute w-full left-0">
-                    <div className="px-4 pt-2 pb-4 space-y-1">
+                <div className="nav-mobile-overlay" onClick={() => setIsMobileMenuOpen(false)}>
+                    <nav
+                        className="nav-mobile-menu nf-slide-up"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         {navLinks.map((link) => (
                             <Link
                                 key={link.name}
                                 href={link.href}
-                                onClick={() => setIsMobileMenuOpen(false)}
-                                className="block px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+                                className={`nav-mobile-link ${isActive(link.href) ? 'nav-mobile-link-active' : ''}`}
                             >
-                                {link.name}
+                                <span className="nav-mobile-link-icon">{link.icon}</span>
+                                <span>{link.name}</span>
+                                {isActive(link.href) && (
+                                    <span className="nav-mobile-active-dot" />
+                                )}
                             </Link>
                         ))}
-                    </div>
+                    </nav>
                 </div>
             )}
         </header>

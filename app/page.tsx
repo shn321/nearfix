@@ -3,7 +3,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { CATEGORIES } from '@/data/services';
 import { ModuleCard } from '@/components/ModuleCard';
-import { Loader2, MapPin, AlertCircle, RefreshCw, TriangleAlert, LocateFixed, CheckCircle2, Settings, ShieldAlert, WifiOff, Clock, X, Info } from 'lucide-react';
+import Link from 'next/link';
+import {
+    Loader2, MapPin, AlertCircle, RefreshCw, TriangleAlert, LocateFixed,
+    CheckCircle2, Settings, ShieldAlert, WifiOff, Clock, X, Info,
+    Phone, Navigation, Map, ChevronDown, ChevronUp, Sparkles, ArrowRight
+} from 'lucide-react';
 import { useLocation, type LocationErrorCode } from '@/lib/location';
 
 // Region Boundaries
@@ -82,8 +87,6 @@ function LocationErrorModal({
     const config = getErrorConfig(errorCode, errorMessage);
 
     const handleOpenSettings = () => {
-        // Attempt to open device settings (Android intent URI)
-        // This works on Android Chrome; elsewhere it falls back to showing instructions
         try {
             const isAndroid = /android/i.test(navigator.userAgent);
             if (isAndroid) {
@@ -93,52 +96,37 @@ function LocationErrorModal({
         } catch {
             // Ignore — fallback below
         }
-        // Fallback: show browser instructions
         setShowInstructions(true);
     };
 
     return (
         <div className="nf-modal-overlay" onClick={onDismiss}>
             <div className="nf-modal nf-slide-up" onClick={(e) => e.stopPropagation()}>
-                {/* Close button */}
                 <button className="nf-modal-close" onClick={onDismiss} aria-label="Close">
                     <X size={18} />
                 </button>
-
-                {/* Icon */}
                 <div
                     className="nf-modal-icon"
                     style={{ color: config.color, background: `${config.color}1A` }}
                 >
                     {config.icon}
                 </div>
-
-                {/* Title */}
                 <h3 className="nf-modal-title" style={{ color: config.color }}>
                     {config.title}
                 </h3>
-
-                {/* Message */}
                 <p className="nf-modal-body">{config.body}</p>
-
-                {/* Instructions (shown after Open Settings click on unsupported platforms) */}
                 {showInstructions && (
                     <div className="nf-modal-instructions nf-slide-up">
                         <Info size={16} />
                         <p>{config.settingsInstructions}</p>
                     </div>
                 )}
-
-                {/* Action Buttons */}
                 <div className="nf-modal-actions">
                     {config.showSettings && !showInstructions && (
                         <button
                             onClick={handleOpenSettings}
                             className="nf-btn nf-modal-btn-settings"
-                            style={{
-                                borderColor: config.color,
-                                color: config.color,
-                            }}
+                            style={{ borderColor: config.color, color: config.color }}
                         >
                             <Settings size={16} />
                             Open Settings
@@ -154,11 +142,37 @@ function LocationErrorModal({
     );
 }
 
+/* ─── How It Works Steps ─── */
+const HOW_IT_WORKS = [
+    {
+        step: 1,
+        icon: <LocateFixed size={24} />,
+        title: 'Enable Location',
+        desc: 'Allow GPS to find services near you',
+        color: '#FF5C00',
+    },
+    {
+        step: 2,
+        icon: <Map size={24} />,
+        title: 'Browse Services',
+        desc: 'Choose from 6 service categories',
+        color: '#8B5CF6',
+    },
+    {
+        step: 3,
+        icon: <Phone size={24} />,
+        title: 'Call or Navigate',
+        desc: 'Instantly connect or get directions',
+        color: '#16A34A',
+    },
+];
+
 /* ─── Main Page ─── */
 
 export default function HomePage() {
     const { phase, location, error: locationError, errorCode, loadingMessage, startDetection } = useLocation();
     const [showErrorModal, setShowErrorModal] = useState(false);
+    const [showCoordDetails, setShowCoordDetails] = useState(false);
 
     const [city, setCity] = useState<string | null>(null);
     const cityCache = useRef<{ lat: number; lng: number; city: string } | null>(null);
@@ -225,6 +239,7 @@ export default function HomePage() {
 
             {/* ─── Hero Section ─── */}
             <div className="nf-hero nf-fade-in">
+                <div className="nf-hero-glow" />
                 <div className="nf-hero-icon">
                     <MapPin size={32} strokeWidth={2.5} />
                 </div>
@@ -304,7 +319,7 @@ export default function HomePage() {
                 </div>
             )}
 
-            {/* ─── Location Detected ─── */}
+            {/* ─── Location Detected (Simplified) ─── */}
             {locationReady && (
                 <div className="nf-card nf-success-card nf-slide-up">
                     <div className="nf-success-header">
@@ -320,36 +335,51 @@ export default function HomePage() {
                         >
                             📍 {city || 'Your Area'}
                         </a>
-                        <div className="nf-coords-grid">
-                            <div className="nf-coord-item">
-                                <span className="nf-coord-label">Latitude</span>
-                                <span className="nf-coord-value">{location.lat.toFixed(6)}</span>
-                            </div>
-                            <div className="nf-coord-item">
-                                <span className="nf-coord-label">Longitude</span>
-                                <span className="nf-coord-value">{location.lng.toFixed(6)}</span>
-                            </div>
-                            <div className="nf-coord-item nf-coord-full">
-                                <span className="nf-coord-label">Accuracy</span>
-                                <span className="nf-coord-value">{Math.round(location.accuracy)} meters</span>
-                            </div>
-                        </div>
-                        <a
-                            href={`https://www.google.com/maps?q=${location.lat},${location.lng}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="nf-verify-link"
-                        >
-                            Verify on Google Maps →
-                        </a>
+
+                        {/* Collapsible coordinate details */}
                         <button
-                            onClick={() => startDetection(true)}
-                            className="nf-btn nf-btn-outline-refresh"
-                            id="refresh-location-btn"
+                            onClick={() => setShowCoordDetails(!showCoordDetails)}
+                            className="nf-coord-toggle"
                         >
-                            <RefreshCw size={14} />
-                            Refresh Location
+                            {showCoordDetails ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            {showCoordDetails ? 'Hide details' : 'Show details'}
                         </button>
+
+                        {showCoordDetails && (
+                            <div className="nf-coords-grid nf-slide-up">
+                                <div className="nf-coord-item">
+                                    <span className="nf-coord-label">Latitude</span>
+                                    <span className="nf-coord-value">{location.lat.toFixed(6)}</span>
+                                </div>
+                                <div className="nf-coord-item">
+                                    <span className="nf-coord-label">Longitude</span>
+                                    <span className="nf-coord-value">{location.lng.toFixed(6)}</span>
+                                </div>
+                                <div className="nf-coord-item nf-coord-full">
+                                    <span className="nf-coord-label">Accuracy</span>
+                                    <span className="nf-coord-value">{Math.round(location.accuracy)} meters</span>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="nf-location-actions">
+                            <a
+                                href={`https://www.google.com/maps?q=${location.lat},${location.lng}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="nf-verify-link"
+                            >
+                                Verify on Google Maps →
+                            </a>
+                            <button
+                                onClick={() => startDetection(true)}
+                                className="nf-btn nf-btn-outline-refresh"
+                                id="refresh-location-btn"
+                            >
+                                <RefreshCw size={14} />
+                                Refresh
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -375,9 +405,52 @@ export default function HomePage() {
                 </div>
             )}
 
+            {/* ─── How It Works ─── */}
+            <div className="nf-how-section nf-slide-up-delay">
+                <h2 className="nf-how-title">
+                    <Sparkles size={18} />
+                    How NearFix Works
+                </h2>
+                <div className="nf-how-steps">
+                    {HOW_IT_WORKS.map((step, i) => (
+                        <div key={i} className="nf-how-step">
+                            <div
+                                className="nf-how-step-num"
+                                style={{ background: step.color }}
+                            >
+                                {step.step}
+                            </div>
+                            <div
+                                className="nf-how-step-icon"
+                                style={{ color: step.color, background: `${step.color}12` }}
+                            >
+                                {step.icon}
+                            </div>
+                            <h3 className="nf-how-step-title">{step.title}</h3>
+                            <p className="nf-how-step-desc">{step.desc}</p>
+                        </div>
+                    ))}
+                </div>
+                <Link href="/about" className="nf-how-learn-more">
+                    Learn more about NearFix
+                    <ArrowRight size={14} />
+                </Link>
+            </div>
+
             {/* ─── Footer ─── */}
-            <footer className="nf-footer">
-                <p>Services available within Honnavar – Bhatkal region</p>
+            <footer className="nf-footer-enhanced">
+                <div className="nf-footer-brand">
+                    <MapPin size={16} />
+                    <span>Near<strong>Fix</strong></span>
+                </div>
+                <div className="nf-footer-links">
+                    <Link href="/about">About</Link>
+                    <Link href="/services">Services</Link>
+                    <Link href="/help">Track Help</Link>
+                </div>
+                <p className="nf-footer-copy">
+                    © 2026 NearFix — Honnavar to Bhatkal region
+                </p>
             </footer>
         </div>
     );

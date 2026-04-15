@@ -37,6 +37,28 @@ function initializeSchema(db: Database.Database): void {
             longitude REAL NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS help_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            description TEXT,
+            latitude REAL NOT NULL,
+            longitude REAL NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            resolved_at DATETIME
+        );
+
+        CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            service_id INTEGER NOT NULL,
+            device_id TEXT NOT NULL,
+            rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+            comment TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
+        );
     `);
 
     // Add default admin if not exists
@@ -119,4 +141,108 @@ export function resetServicesDb(): boolean {
     db.prepare('DELETE FROM services').run();
     seedDefaults(db);
     return true;
+}
+
+// ═══════════════════ Help Requests ═══════════════════
+
+export interface HelpRequest {
+    id: number;
+    category: string;
+    phone: string;
+    description: string | null;
+    latitude: number;
+    longitude: number;
+    status: string;
+    created_at: string;
+    resolved_at: string | null;
+}
+
+export function createHelpRequest(data: Omit<HelpRequest, 'id' | 'status' | 'created_at' | 'resolved_at'>): HelpRequest {
+    const db = getDb();
+    const result = db.prepare(`
+        INSERT INTO help_requests (category, phone, description, latitude, longitude)
+        VALUES (@category, @phone, @description, @latitude, @longitude)
+    `).run(data);
+    return { ...data, id: result.lastInsertRowid as number, status: 'pending', created_at: new Date().toISOString(), resolved_at: null };
+}
+
+export function getAllHelpRequests(): HelpRequest[] {
+    const db = getDb();
+    return db.prepare('SELECT * FROM help_requests ORDER BY created_at DESC').all() as HelpRequest[];
+}
+
+export function getHelpRequestsByPhone(phone: string): HelpRequest[] {
+    const db = getDb();
+    return db.prepare('SELECT * FROM help_requests WHERE phone = ? ORDER BY created_at DESC').all(phone) as HelpRequest[];
+}
+
+export function updateHelpRequestStatus(id: number, status: string): boolean {
+    const db = getDb();
+    const resolvedAt = status === 'resolved' ? new Date().toISOString() : null;
+    const result = db.prepare('UPDATE help_requests SET status = ?, resolved_at = ? WHERE id = ?').run(status, resolvedAt, id);
+    return result.changes > 0;
+}
+
+export function getHelpRequestStats() {
+    const db = getDb();
+    const total = (db.prepare('SELECT COUNT(*) AS count FROM help_requests').get() as { count: number }).count;
+    const pending = (db.prepare("SELECT COUNT(*) AS count FROM help_requests WHERE status = 'pending'").get() as { count: number }).count;
+    const resolved = (db.prepare("SELECT COUNT(*) AS count FROM help_requests WHERE status = 'resolved'").get() as { count: number }).count;
+    return { total, pending, resolved };
+}
+
+// ═══════════════════ Reviews ═══════════════════
+
+export interface Review {
+    id: number;
+    service_id: number;
+    device_id: string;
+    rating: number;
+    comment: string | null;
+    created_at: string;
+}
+
+export function createReview(data: Omit<Review, 'id' | 'created_at'>): Review {
+    const db = getDb();
+    // Check if this device already reviewed this service
+    const existing = db.prepare('SELECT id FROM reviews WHERE service_id = ? AND device_id = ?').get(data.service_id, data.device_id) as { id: number } | undefined;
+    if (existing) {
+        // Update existing review
+        db.prepare('UPDATE reviews SET rating = ?, comment = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?').run(data.rating, data.comment, existing.id);
+        return { ...data, id: existing.id, created_at: new Date().toISOString() };
+    }
+    const result = db.prepare(`
+        INSERT INTO reviews (service_id, device_id, rating, comment)
+        VALUES (@service_id, @device_id, @rating, @comment)
+    `).run(data);
+    return { ...data, id: result.lastInsertRowid as number, created_at: new Date().toISOString() };
+}
+
+export function getReviewsByService(serviceId: number): Review[] {
+    const db = getDb();
+    return db.prepare('SELECT * FROM reviews WHERE service_id = ? ORDER BY created_at DESC').all(serviceId) as Review[];
+}
+
+export function getAverageRating(serviceId: number): { avg: number; count: number } {
+    const db = getDb();
+    const row = db.prepare('SELECT AVG(rating) AS avg, COUNT(*) AS count FROM reviews WHERE service_id = ?').get(serviceId) as { avg: number | null; count: number };
+    return { avg: row.avg ?? 0, count: row.count };
+}
+
+export function deleteReview(id: number): boolean {
+    const db = getDb();
+    const result = db.prepare('DELETE FROM reviews WHERE id = ?').run(id);
+    return result.changes > 0;
+}
+
+export function getAllReviews(): Review[] {
+    const db = getDb();
+    return db.prepare('SELECT * FROM reviews ORDER BY created_at DESC').all() as Review[];
+}
+
+export function getReviewStats() {
+    const db = getDb();
+    const total = (db.prepare('SELECT COUNT(*) AS count FROM reviews').get() as { count: number }).count;
+    const avgRating = (db.prepare('SELECT AVG(rating) AS avg FROM reviews').get() as { avg: number | null }).avg ?? 0;
+    return { total, avgRating: Number(avgRating.toFixed(1)) };
 }

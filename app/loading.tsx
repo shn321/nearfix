@@ -1,9 +1,18 @@
 export default function Loading() {
     return (
-        <div className="max-w-4xl mx-auto px-6 py-16 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-3">
-                <div className="w-8 h-8 border-3 border-gray-200 border-t-[#FF5C00] rounded-full animate-spin" />
-                <p className="text-gray-500 text-sm">Loading…</p>
+        <div className="nf-page-loading">
+            <div className="nf-skeleton-hero">
+                <div className="nf-skeleton nf-skeleton-circle" />
+                <div className="nf-skeleton nf-skeleton-title" />
+                <div className="nf-skeleton nf-skeleton-text" />
+            </div>
+            <div className="nf-skeleton-card">
+                <div className="nf-skeleton nf-skeleton-block" />
+            </div>
+            <div className="nf-skeleton-grid">
+                <div className="nf-skeleton nf-skeleton-card-item" />
+                <div className="nf-skeleton nf-skeleton-card-item" />
+                <div className="nf-skeleton nf-skeleton-card-item" />
             </div>
         </div>
     );
