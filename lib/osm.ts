@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Service, ServiceCategory } from '@/data/services';
 
 const OSM_TAGS: Record<ServiceCategory, string[]> = {
@@ -73,7 +74,6 @@ async function fetchOverpassQuery(query: string): Promise<any[]> {
         serverIndex++;
 
         try {
-            console.log(`[OSM] Fetching from ${server} (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -139,7 +139,6 @@ export async function fetchOSMServices(
         const tags = OSM_TAGS[category];
         if (!tags) return [];
 
-        console.log(`[OSM] Category: ${category}, Radius: ${radiusMeters}m, Tags: ${tags.length}`);
 
         // Split into separate queries per tag to keep each query lightweight
         const allElements: any[] = [];
@@ -154,7 +153,6 @@ export async function fetchOSMServices(
                 `way${tag}(around:${radiusMeters},${lat},${lng});\n` +
                 `);out center;`;
 
-            console.log(`[OSM] Query ${i + 1}/${tags.length}: ${tag}`);
 
             const elements = await fetchOverpassQuery(query);
 
@@ -172,7 +170,6 @@ export async function fetchOSMServices(
             }
         }
 
-        console.log(`[OSM] Total unique elements: ${allElements.length}`);
 
         return allElements
             .filter((el: any) => (el.lat || el.center?.lat) && (el.lon || el.center?.lon))

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import { type ServiceCategory } from '@/data/services';
 
@@ -73,7 +74,6 @@ async function fetchOverpassQuery(query: string): Promise<any[]> {
         serverIndex++;
 
         try {
-            console.log(`[OSM API] Fetching from ${server} (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -153,7 +153,6 @@ export async function GET(request: NextRequest) {
         // Reduced radius: 5000 meters (5 km) to prevent heavy queries
         const radiusMeters = 5000;
 
-        console.log(`[OSM API] Category: ${category}, Lat: ${lat}, Lng: ${lng}, Radius: ${radiusMeters}m`);
 
         // Split into separate queries per tag to keep each query lightweight
         const allElements: any[] = [];
@@ -168,7 +167,6 @@ export async function GET(request: NextRequest) {
                 `way${tag}(around:${radiusMeters},${lat},${lng});\n` +
                 `);out center;`;
 
-            console.log(`[OSM API] Query ${i + 1}/${tags.length}: ${tag}`);
 
             const elements = await fetchOverpassQuery(query);
 
@@ -186,7 +184,6 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        console.log(`[OSM API] Total unique elements: ${allElements.length}`);
 
         const services = allElements
             .filter((el: any) => (el.lat || el.center?.lat) && (el.lon || el.center?.lon))
@@ -215,7 +212,6 @@ export async function GET(request: NextRequest) {
                 };
             });
 
-        console.log(`[OSM API] Returning ${services.length} services for category "${category}"`);
         return NextResponse.json(services);
 
     } catch (globalError) {

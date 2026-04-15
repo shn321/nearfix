@@ -2,10 +2,10 @@
 
 import { use, useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Map as MapIcon, List, Navigation, Phone, MapPin, LocateFixed } from 'lucide-react';
+import { ArrowLeft, Loader2, Map as MapIcon, List, Navigation, MapPin, LocateFixed } from 'lucide-react';
 import { useLocation, calculateDistance } from '@/lib/location';
 import { getServicesByCategory } from '@/lib/serviceStore';
-import { CATEGORIES, type Service, type ServiceCategory } from '@/data/services';
+import { CATEGORIES, type Service } from '@/data/services';
 import { ServiceCard } from '@/components/ServiceCard';
 
 const DISTANCE_OPTIONS = [2, 5, 10, 20, 50];
@@ -82,12 +82,9 @@ export default function ServiceCategoryPage({
                 // If we have GPS location, fetch real data from OSM via server API
                 if (location) {
                     const apiUrl = `/api/services/nearby?category=${encodeURIComponent(category)}&lat=${location.lat}&lng=${location.lng}`;
-                    console.log(`[NearFix] Fetching nearby services: ${apiUrl}`);
                     const res = await fetch(apiUrl);
                     if (res.ok) {
                         const osmData = await res.json();
-                        console.log(`[NearFix] OSM API response for "${category}":`, osmData);
-                        console.log(`[NearFix] ${osmData.length} services returned from OpenStreetMap`);
                         finalData = osmData;
                     } else {
                         console.warn(`[NearFix] OSM API returned status ${res.status}`);
@@ -96,7 +93,6 @@ export default function ServiceCategoryPage({
 
                 // Fallback to local database if OSM fails or location is not provided
                 if (finalData.length === 0) {
-                    console.log('[NearFix] Falling back to local database');
                     finalData = await getServicesByCategory(category);
                 }
 
@@ -244,7 +240,7 @@ export default function ServiceCategoryPage({
                             Enable location to find nearby {catConfig.label.toLowerCase()}
                         </p>
                         <button
-                            onClick={startDetection}
+                            onClick={() => startDetection()}
                             className="flex items-center gap-2 px-6 py-3 rounded-xl bg-[#FF5C00] text-white font-semibold hover:bg-[#e85400] active:scale-[0.97] transition-all shadow-sm"
                         >
                             <MapPin size={18} />
