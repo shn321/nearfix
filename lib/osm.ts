@@ -140,39 +140,52 @@ export async function fetchOSMServices(
         if (!tags) return [];
 
 
-        // Split into separate queries per tag to keep each query lightweight
-        const allElements: any[] = [];
-        const seenIds = new Set<number>();
-
-        for (let i = 0; i < tags.length; i++) {
-            const tag = tags[i];
-
+        // Run all tag queries in PARALLEL for faster loading
+        const queryPromises = tags.map((tag) => {
             // Only query node and way (skip relation — rarely useful for POIs)
             const query = `[out:json][timeout:15];(\n` +
                 `node${tag}(around:${radiusMeters},${lat},${lng});\n` +
                 `way${tag}(around:${radiusMeters},${lat},${lng});\n` +
                 `);out center;`;
+            return fetchOverpassQuery(query);
+        });
 
+        const results = await Promise.all(queryPromises);
 
-            const elements = await fetchOverpassQuery(query);
-
-            // Deduplicate by element ID
+        // Merge and deduplicate by element ID
+        const allElements: any[] = [];
+        const seenIds = new Set<number>();
+        for (const elements of results) {
             for (const el of elements) {
                 if (!seenIds.has(el.id)) {
                     seenIds.add(el.id);
                     allElements.push(el);
                 }
             }
-
-            // Add 1 second delay between tag queries to avoid rate limiting
-            if (i < tags.length - 1) {
-                await delay(1000);
-            }
         }
 
 
         return allElements
-            .filter((el: any) => (el.lat || el.center?.lat) && (el.lon || el.center?.lon))
+            .filter((el: any) => {
+                // Must have valid coordinates
+                if (!(el.lat || el.center?.lat) || !(el.lon || el.center?.lon)) return false;
+
+                const t = el.tags || {};
+
+                // ── Filter out permanently closed / disused / abandoned shops ──
+                if (t['disused'] === 'yes' || t['abandoned'] === 'yes') return false;
+                if (t['opening_hours'] === 'off' || t['opening_hours'] === 'closed') return false;
+                if (t['permanent'] === 'closed' || t['access'] === 'no') return false;
+
+                // Check for disused:* prefix keys (e.g. disused:shop, disused:amenity)
+                for (const key of Object.keys(t)) {
+                    if (key.startsWith('disused:') || key.startsWith('abandoned:') || key.startsWith('demolished:') || key.startsWith('removed:')) {
+                        return false;
+                    }
+                }
+
+                return true;
+            })
             .map((el: any) => {
                 const elementLat = el.lat || el.center?.lat;
                 const elementLon = el.lon || el.center?.lon;

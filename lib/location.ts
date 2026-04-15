@@ -221,42 +221,8 @@ export function useLocation() {
         setErrorCode(null);
         setLoadingMessage('Detecting your location...');
 
-        // Single getCurrentPosition call — triggers browser permission popup
-        // then starts accuracy refinement attempts
-        navigator.geolocation.getCurrentPosition(
-            () => {
-                // Permission granted — start accuracy refinement
-                setLoadingMessage('Detecting your location...');
-                attemptGetPosition();
-            },
-            (err) => {
-                let message = 'Unable to detect location.';
-                let code: LocationErrorCode = null;
-                switch (err.code) {
-                    case err.PERMISSION_DENIED:
-                        message = 'Please allow location permission';
-                        code = 'permission_denied';
-                        break;
-                    case err.POSITION_UNAVAILABLE:
-                        message = 'Location is turned off. Please enable location from your device settings.';
-                        code = 'position_unavailable';
-                        break;
-                    case err.TIMEOUT:
-                        message = 'Unable to detect location, try again';
-                        code = 'timeout';
-                        break;
-                }
-                detectionActiveRef.current = false;
-                setError(message);
-                setErrorCode(code);
-                setPhase('error');
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 60000,
-            }
-        );
+        // Go straight into accuracy refinement — no redundant GPS call
+        attemptGetPosition();
     }, [attemptGetPosition]);
 
     // Cleanup on unmount

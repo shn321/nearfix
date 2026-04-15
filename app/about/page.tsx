@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import {
-    MapPin, Phone, Navigation, Shield, Star, Zap,
-    ArrowLeft, Heart, Smartphone, Globe, Clock,
-    CheckCircle2, Users, Map, AlertTriangle, Send,
+    MapPin, Phone, Navigation, Shield, Star,
+    ArrowLeft, Heart, Smartphone, Globe,
+    Users, Map, AlertTriangle, Send,
     ChevronRight, Sparkles
 } from 'lucide-react';
 

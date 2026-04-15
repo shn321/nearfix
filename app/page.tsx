@@ -7,7 +7,7 @@ import Link from 'next/link';
 import {
     Loader2, MapPin, AlertCircle, RefreshCw, TriangleAlert, LocateFixed,
     CheckCircle2, Settings, ShieldAlert, WifiOff, Clock, X, Info,
-    Phone, Navigation, Map, ChevronDown, ChevronUp, Sparkles, ArrowRight
+    Phone, Map, ChevronDown, ChevronUp, Sparkles, ArrowRight
 } from 'lucide-react';
 import { useLocation, type LocationErrorCode } from '@/lib/location';
 
